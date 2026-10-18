@@ -25,9 +25,7 @@ rate_limit_store: Dict[str, List[float]] = {}
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    # Only rate-limit orders endpoints
     if request.url.path.startswith("/orders"):
-        # Case-insensitive header check for X-Client-Id
         client_id = request.headers.get("x-client-id") or request.headers.get("X-Client-Id") or "default-client"
         
         now = time.time()
@@ -53,16 +51,6 @@ class OrderCreate(BaseModel):
     item_name: Optional[str] = "Default Item"
 
 @app.post("/orders", status_code=status.HTTP_201_CREATED)
-def create_order(
-    order_in: OrderCreate,
-    idempotency_key: Optional[str] = None,
-):
-    # Retrieve idempotency key from headers case-insensitively via request if needed, 
-    # but FastAPI query/header mapping can also capture Idempotency-Key:
-    pass
-
-# Alternative proper signature for POST with headers:
-@app.post("/orders", status_code=status.HTTP_201_CREATED)
 def create_order_endpoint(
     request: Request,
     order_in: OrderCreate,
@@ -73,8 +61,8 @@ def create_order_endpoint(
         return idempotency_store[idempotency_key]
     
     new_id = len(orders_db) + 1
-    response_payload = {"id": str(new_id), "item": order_in.item_name, "status": "created"}
-    orders_db[new_id] = {"id": new_id, "item": order_in.item_name, "price": 100.0}
+    response_payload = {"id": new_id, "item": order_in.item_name, "status": "created"}
+    orders_db[new_id] = response_payload
     
     if idempotency_key:
         idempotency_store[idempotency_key] = response_payload
@@ -97,11 +85,17 @@ def get_orders(
     items = []
     current_id = start_id
     while current_id <= TOTAL_ORDERS and len(items) < limit:
-        if current_id in orders_db:
+        if current_id in orders_db and orders_db[current_id] is not None:
             items.append(orders_db[current_id])
         current_id += 1
         
-    next_cursor = str(items[-1]["id"]) if items and items[-1]["id"] < TOTAL_ORDERS else None
+    # Safely compute next_cursor preventing null reference errors
+    next_cursor = None
+    if items:
+        last_item = items[-1]
+        if isinstance(last_item, dict) and last_item.get("id") is not None:
+            if last_item["id"] < TOTAL_ORDERS:
+                next_cursor = str(last_item["id"])
     
     return {
         "items": items,
