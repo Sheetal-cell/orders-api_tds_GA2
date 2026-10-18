@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException, status, Query
+from fastapi import FastAPI, Request, status, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
@@ -32,6 +32,7 @@ async def rate_limit_middleware(request: Request, call_next):
         if client_id not in rate_limit_store:
             rate_limit_store[client_id] = []
         
+        # Keep only timestamps within the current sliding window
         window_start = now - WINDOW_SECONDS
         rate_limit_store[client_id] = [t for t in rate_limit_store[client_id] if t > window_start]
         
@@ -89,7 +90,6 @@ def get_orders(
             items.append(orders_db[current_id])
         current_id += 1
         
-    # Safely compute next_cursor preventing null reference errors
     next_cursor = None
     if items:
         last_item = items[-1]
