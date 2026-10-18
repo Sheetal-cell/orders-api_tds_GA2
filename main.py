@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional, List, Dict
 import time
-import uuid
 
 app = FastAPI()
 
@@ -16,12 +15,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Assigned values
 TOTAL_ORDERS = 51
 RATE_LIMIT = 19
 WINDOW_SECONDS = 10
 
-# In-memory storage for stateful patterns
 idempotency_store: Dict[str, dict] = {}
 orders_db: Dict[int, dict] = {i: {"id": i, "item": f"Item {i}", "price": i * 10.0} for i in range(1, TOTAL_ORDERS + 1)}
 
@@ -52,22 +49,20 @@ def create_order(
     idempotency_key: Optional[str] = Header(None, alias="Idempotency-Key"),
     x_client_id: Optional[str] = Header("default-client", alias="X-Client-Id")
 ):
-    if not check_rate_limit(x_client_id):
-        return Response(
+    client_id = x_client_id or "default-client"
+    if not check_rate_limit(client_id):
+        raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers={"Retry-After": str(WINDOW_SECONDS)},
-            content="Rate limit exceeded"
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(WINDOW_SECONDS)}
         )
     
     if idempotency_key and idempotency_key in idempotency_store:
         return idempotency_store[idempotency_key]
     
-    # Create new order
     new_id = len(orders_db) + 1
-    order_data = {"id": new_id, "item": order_in.item_name, "status": "created"}
-    orders_db[new_id] = order_data
-    
     response_payload = {"id": str(new_id), "item": order_in.item_name, "status": "created"}
+    orders_db[new_id] = {"id": new_id, "item": order_in.item_name, "price": 100.0}
     
     if idempotency_key:
         idempotency_store[idempotency_key] = response_payload
@@ -80,14 +75,14 @@ def get_orders(
     cursor: Optional[str] = Query(None),
     x_client_id: Optional[str] = Header("default-client", alias="X-Client-Id")
 ):
-    if not check_rate_limit(x_client_id):
-        return Response(
+    client_id = x_client_id or "default-client"
+    if not check_rate_limit(client_id):
+        raise HTTPException(
             status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            headers={"Retry-After": str(WINDOW_SECONDS)},
-            content="Rate limit exceeded"
+            detail="Rate limit exceeded",
+            headers={"Retry-After": str(WINDOW_SECONDS)}
         )
     
-    # Cursor represents the last served order ID (or integer offset)
     start_id = 1
     if cursor:
         try:
